@@ -2,11 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import trapezoid,simpson
 
-
-
-#Question 1:
-
-
 #We want a function that returns the velocity direction (x,y) at different
 #points on the grid at some time t
 
@@ -137,13 +132,6 @@ def run_advection():
     
     plt.tight_layout()
     plt.show()
-        
-
-
-
-#Question 2:
-
-#The velocities function from before
     
 def velocities(X,Y,t,a):
     u = 2*np.pi*np.sin(2*np.pi*X + a*np.sin(2*np.pi*t))*np.cos(2*np.pi*Y)
