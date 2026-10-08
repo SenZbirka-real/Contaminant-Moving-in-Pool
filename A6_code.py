@@ -1,0 +1,296 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import trapezoid,simpson
+
+
+
+#Question 1:
+
+
+#We want a function that returns the velocity direction (x,y) at different
+#points on the grid at some time t
+
+def velocities(X,Y,t,a):
+    u = 2*np.pi*np.sin(2*np.pi*X + a*np.sin(2*np.pi*t))*np.cos(2*np.pi*Y)
+    v = -2*np.pi*np.sin(2*np.pi*Y)*np.cos(2*np.pi*X + a*np.sin(2*np.pi*t))
+    
+    return u,v
+
+
+def run_advection():
+
+    #Values
+    num_x = 400
+    num_y = 200
+    dx = 1/num_x
+    dy = 0.5/num_y
+
+    a = 2.0
+    w = 0.1
+    x0 = 0.5
+    y0 = 0.25
+
+    #Times
+    dt = 0.0001
+    t_start = 0.0
+    t_end = 1.0
+    steps = int(t_end/dt)
+
+    #For Plotting:
+    target_times = [0.0, 0.25, 0.5, 0.75, 1.0]
+    target_steps = [int(t / dt) for t in target_times]
+
+    #Grid:
+    x = np.linspace(0,1,num_x,endpoint = False)
+    y = np.linspace(0,0.5,num_y+1)
+    X,Y = np.meshgrid(x,y,indexing = 'ij')
+
+    #Initial concentrate
+    C = np.exp(-((X-x0)**2+(Y-y0)**2)/(2*w**2))
+
+    #Values for plotting variance
+    history_t = []
+    history_mean = []
+    history_var = []
+
+    #The simulation loop
+
+    for i in range(steps+1):
+        t = i*dt
+
+        history_t.append(t)
+        history_mean.append(np.mean(C))
+        history_var.append(np.var(C))
+
+        if i in target_steps:
+            plt.figure(figsize=(8, 4)) 
+            contour = plt.contourf(X, Y, C, cmap='plasma', levels=100) 
+            plt.colorbar(contour, label='C') 
+            plt.title(f'Concentration Field at t = {t:.2f}') 
+            plt.xlabel('x') 
+            plt.ylabel('y') 
+            plt.tight_layout()
+            plt.show()
+
+        if i == steps:  # Break out so we don't calculate velocities past t_end
+            break
+
+        u,v = velocities(X,Y,t,a)
+
+        #X-Direction
+
+        C_iplus_1 = np.roll(C,-1,axis=0)
+        C_iminus_1 = np.roll(C,1,axis=0)
+
+        flux_x = np.zeros_like(C)
+        where_u_pos = u>0
+        where_u_neg = u<0
+
+        flux_x[where_u_pos] = u[where_u_pos]*(C[where_u_pos]-C_iminus_1[where_u_pos])/dx
+        flux_x[where_u_neg] = u[where_u_neg]*(C_iplus_1[where_u_neg]-C[where_u_neg])/dx
+
+
+        #Y-Direction
+        flux_y = np.zeros_like(C)
+
+        #Need to consider the boundary conditions on the edges
+        interior = slice(1,num_y)
+
+        v_int = v[:,interior]
+        C_int = C[:,interior]
+
+        C_yplus_1 = C[:,2:num_y+1]
+        C_yminus_1 = C[:,0:num_y-1]
+
+        flux_y_interior = np.zeros_like(C_int)
+        where_v_pos = v_int>0
+        where_v_neg = v_int<0
+
+        flux_y_interior[where_v_pos] = v_int[where_v_pos]*(C_int[where_v_pos] - C_yminus_1[where_v_pos])/dy
+        flux_y_interior[where_v_neg] = v_int[where_v_neg]*(C_yplus_1[where_v_neg]-C_int[where_v_neg])/dy
+
+        flux_y[:,interior] = flux_y_interior
+
+        #Updating C
+        C = C-dt*(flux_x+flux_y)
+
+    history_t.append(t_end)
+    history_mean.append(np.mean(C))
+    history_var.append(np.var(C))
+
+    #Plotting the variance over time
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    
+    # Average plot
+    ax1.plot(history_t, history_mean, color='blue', linewidth=2)
+    ax1.set_title('Average Concentration vs Time')
+    ax1.set_xlabel('t')
+    ax1.set_ylabel('Average')
+    ax1.grid(True, linestyle='--')
+    
+    # Variance plot
+    ax2.plot(history_t, history_var, color='red', linewidth=2)
+    ax2.set_title('Concentration Variance vs Time')
+    ax2.set_xlabel('t')
+    ax2.set_ylabel('Variance')
+    ax2.grid(True, linestyle='--')
+    
+    plt.tight_layout()
+    plt.show()
+        
+
+
+
+#Question 2:
+
+#The velocities function from before
+    
+def velocities(X,Y,t,a):
+    u = 2*np.pi*np.sin(2*np.pi*X + a*np.sin(2*np.pi*t))*np.cos(2*np.pi*Y)
+    v = -2*np.pi*np.sin(2*np.pi*Y)*np.cos(2*np.pi*X + a*np.sin(2*np.pi*t))
+    
+    return u,v
+        
+#We also will need to define the bilinear interpolation:
+
+def bilinear_int(X,Y,u,v,dt,C,dx,dy,num_x,num_y):
+
+    #Calculate the displacement in x and y
+    disp_x = u*dt/dx
+    disp_y = v*dt/dy
+
+    #We need (p,q) and (r,_)
+    p = np.floor(disp_x).astype(int)
+    r = disp_x - p
+    q_int = np.floor(disp_y).astype(int)
+    q_frac = disp_y - q_int
+
+    #Creating the grid meshes for current position (j,k)
+    j_idx, k_idx = np.meshgrid(np.arange(num_x),np.arange(num_y+1),indexing = 'ij')
+    
+    #Now we need to offset indexes
+    idx_j_p = (j_idx-p)%num_x
+    idx_j_p1 = (j_idx-p-1)%num_x
+    idx_k_q = np.clip(k_idx-q_int,0,num_y) #enforces boundary conditions
+    idx_k_q1 = np.clip(k_idx-q_int-1,0,num_y)#enforces boundary conditions
+
+    #Now we need the different C's
+    C_j_p_k_q = C[idx_j_p,idx_k_q]
+    C_j_p_k_q1 = C[idx_j_p,idx_k_q1]
+    C_j_p1_k_q = C[idx_j_p1,idx_k_q]
+    C_j_p1_k_q1 = C[idx_j_p1,idx_k_q1]
+     
+    #Then we can find C*
+
+    C_star = (1.0-r)*((1-q_frac)*C_j_p_k_q + q_frac*C_j_p_k_q1) + r*((1.0-q_frac)*C_j_p1_k_q + q_frac*C_j_p1_k_q1)
+
+    return C_star
+
+#A function for the double integral
+
+def integrate_2d(field, x, y):
+    
+    int_y = trapezoid(field, y, axis=1)
+    total_integral = trapezoid(int_y, x, axis=0)
+    
+    return total_integral
+
+def run_advection_two():
+
+    #Values
+    num_x = 400
+    num_y = 200
+    dx = 1/num_x
+    dy = 0.5/num_y
+
+    #Variables
+    a = 2.0
+    w = 0.1
+    x0 = 0.5
+    y0 = 0.25
+    b = 0.1
+    A = 0.5
+
+    #Times
+    dt = 0.0001 
+    t_start = 0.0
+    t_end = 1.0
+    steps = int(t_end/dt)
+
+    #For Plotting:
+    target_times = [0.0, 0.25, 0.5, 0.75, 1.0]
+    target_steps = [int(t / dt) for t in target_times]
+    
+    #Our grid
+    x = np.linspace(0, 1, num_x, endpoint=False)
+    y = np.linspace(0, 0.5, num_y + 1)
+    X, Y = np.meshgrid(x, y, indexing='ij')
+
+    #Our given S(x,y) function
+    S = np.exp(-((X-x0)**2 + (Y-y0)**2)/ (2*w**2))
+
+    #Since the pollutant is 'pumped' in C is initially zero
+    C = np.zeros_like(X)
+
+    #Plotting metrics
+    history_t =[]
+    history_mean = []
+    history_var = []
+
+    #The logic
+
+    for i in range(steps+1):
+        t = i*dt
+
+        #Calculate mean and variance
+        mean_C = (1.0/A)*integrate_2d(C,x,y)
+        var_C = integrate_2d((C-mean_C)**2,x,y)
+
+        history_t.append(t)
+        history_mean.append(mean_C)
+        history_var.append(var_C)
+
+        #Plotting the pollutant at the specific times 
+        if i in target_steps:
+            plt.figure(figsize=(8, 4))
+            contour = plt.contourf(X, Y, C, cmap='plasma', levels=100)
+            plt.colorbar(contour, label='C')
+            plt.title(f'Concentration at t = {t:.2f}')
+            plt.xlabel('x')
+            plt.ylabel('y')
+            plt.tight_layout()
+            plt.show()
+
+        if i == steps:
+            break
+
+        #Getting velocities
+        u,v = velocities(X,Y,t,a)
+
+        #Using bi linear interpolation to find C_star
+        C_star = bilinear_int(X,Y,u,v,dt,C,dx,dy,num_x,num_y)
+
+        #Setting new C using First-Order Forward Euler time integration
+        C = C_star + dt*(S-b*C_star)
+        
+    #Plotting average and variance
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    
+    #Average plot
+    ax1.plot(history_t, history_mean, color='blue', linewidth=2)
+    ax1.set_title('Average Concentration vs Time')
+    ax1.set_xlabel('t')
+    ax1.set_ylabel('Mean')
+    ax1.grid(True, linestyle='--')
+    
+    #Variance plot
+    ax2.plot(history_t, history_var, color='red', linewidth=2)
+    ax2.set_title('Concentration Variance vs Time')
+    ax2.set_xlabel('t')
+    ax2.set_ylabel('Variance')
+    ax2.grid(True, linestyle='--')
+    
+    plt.tight_layout()
+    plt.show()
+
+   
